@@ -1,33 +1,43 @@
-
 /*
     Three WiFi Meters - Signal Strength
     -
-    David Chatting - github.com/davidchatting/ThreeWiFiMeters
+    Originally written by David Chatting - github.com/davidchatting/ThreeWiFiMeters
+    Updated by Andriy Malyshenko - https://github.com/anabolyc/esp32-esp8266-wifi-meaters
     MIT License - Copyright (c) March 2021
     Documented here > https://github.com/davidchatting/ThreeWiFiMeters#-signal-strength
 */
 
 #include <Arduino.h>
-#include <YoYoWiFiManager.h>
-#include <YoYoSettings.h>
+#include "main.h"
 
-YoYoWiFiManager wifiManager;
-YoYoSettings *settings;
-
-const int ledPin = 12;
-const int gaguePin = 5;
-const int maxGagueValue = 255;
-
-#if defined(ESP32)
-const int gagueChannel = 0;
+#ifdef ESP32
+#include <WiFi.h>
+#endif
+#ifdef ESP8266
+#include <ESP8266WiFi.h>
 #endif
 
-const int minRSSI = -80;
-const int maxRSSI = -20;
+#ifdef GAUGE_TFT
+#include "tftgauge.h"
+TFTGauge *tftgauge = new TFTGauge();
+#define TFT_GAUGE_SET(value) tftgauge->set(value);
+#else
+#define TFT_GAUGE_SET(value) ;
+#endif
 
-void onceConnected()
-{
-}
+#ifdef GAUGE_ANALOG
+#include "analoggauge.h"
+AnalogGauge *agauge = new AnalogGauge();
+#define A_GAUGE_SET(value) agauge->set(value);
+#else
+#define A_GAUGE_SET(value) ;
+#endif
+
+#define GAUGE_SET(value)  \
+  {                       \
+    TFT_GAUGE_SET(value); \
+    A_GAUGE_SET(value);   \
+  }
 
 bool blink(int periodMs)
 {
@@ -37,27 +47,8 @@ bool blink(int periodMs)
 void displayRSSI()
 {
   int32_t rssi = getRSSI(WiFi.SSID());
-  if (rssi == 0)
-  {
-    setGague(0);
-  }
-  else
-  {
-    int valueToDisplay = map(rssi, maxRSSI, minRSSI, 255, 0);
-    valueToDisplay = min(max(valueToDisplay, 0), 255);
-    setGague(valueToDisplay);
-  }
-}
-
-void setGague(int value)
-{
-  value = map(value, 0, 255, 0, maxGagueValue);
-
-#if defined(ESP32)
-  ledcWrite(gagueChannel, value);
-#else
-  analogWrite(gaguePin, value);
-#endif
+  if (rssi != 0)
+    GAUGE_SET(rssi);
 }
 
 // Return RSSI or 0 if target SSID not found
@@ -81,48 +72,46 @@ void setup()
 {
   Serial.begin(SERIAL_BAUD);
 
-  pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, LOW);
-
-  pinMode(gaguePin, OUTPUT);
-#if defined(ESP32)
-  ledcSetup(gagueChannel, 1000, 8);
-  ledcAttachPin(gaguePin, gagueChannel);
+#ifdef GAUGE_TFT
+  tftgauge->init();
+#endif
+#ifdef GAUGE_ANALOG
+  agauge->init(GAUGE_ANALOG);
 #endif
 
-  setGague(255);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.printf("Connecting to %s\n", WIFI_SSID);
+
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(400);
+    Serial.print(".");
+  }
+  Serial.print(" connected!");
+
+  pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_LED, LOW);
+
+  // GAUGE_SET(255);
   delay(150);
-  setGague(0);
-
-  settings = new YoYoSettings(512); //Settings must be created here in Setup() as contains call to EEPROM.begin() which will otherwise fail
-  wifiManager.init(settings, onceConnected, NULL, NULL, false, 80, -1);
-
-  //Attempt to connect to a WiFi network previously saved in the settings,
-  //if one can not be found start a captive portal called "YoYoMachines",
-  //with a password of "blinkblink" to configure a new one:
-  wifiManager.begin("Home Network Study", "blinkblink");
+  GAUGE_SET(-100);
 }
 
 void loop()
 {
-  uint8_t wifiStatus = wifiManager.loop();
+  uint8_t wifiStatus = WiFi.status();
+  Serial.printf("Wifi status: %d\n", wifiStatus);
 
-  if (wifiStatus == YY_CONNECTED)
+  if (wifiStatus == WL_CONNECTED)
   {
-    digitalWrite(ledPin, HIGH);
+    digitalWrite(PIN_LED, HIGH);
     displayRSSI();
   }
   else
   {
-    switch (wifiManager.currentMode)
-    {
-    case YoYoWiFiManager::YY_MODE_PEER_CLIENT:
-      digitalWrite(ledPin, blink(1000));
-      break;
-    default: //YY_MODE_PEER_SERVER
-      digitalWrite(ledPin, blink(500));
-      break;
-    }
-    setGague(0);
+    GAUGE_SET(-100);
+    digitalWrite(PIN_LED, blink(1000));
   }
+
+  delay(1000);
 }
