@@ -8,7 +8,6 @@
 */
 
 #include <Arduino.h>
-#include "main.h"
 
 #ifdef ESP32
 #include <WiFi.h>
@@ -44,13 +43,6 @@ bool blink(int periodMs)
   return (((millis() / periodMs) % 2) == 0);
 }
 
-void displayRSSI()
-{
-  int32_t rssi = getRSSI(WiFi.SSID());
-  if (rssi != 0)
-    GAUGE_SET(rssi);
-}
-
 // Return RSSI or 0 if target SSID not found
 int32_t getRSSI(String target_ssid)
 {
@@ -66,6 +58,13 @@ int32_t getRSSI(String target_ssid)
     }
   }
   return (result);
+}
+
+void displayRSSI()
+{
+  int32_t rssi = getRSSI(WiFi.SSID());
+  if (rssi != 0)
+    GAUGE_SET(rssi);
 }
 
 void setup()
