@@ -23,11 +23,11 @@ Specify your wifi credentials at the top of [platformio.ini](/platformio.ini) fi
 
 #### ESP8266
 
-![esp8266](/doc/demo/VID_20211225_224932.gif)
+![esp8266](doc/demo/VID_20211225_224932.gif)
 
 #### ESP32
 
-![esp32](/doc/demo/VID_20211220_220307.gif)
+![esp32](doc/demo/VID_20211220_220307.gif)
 
 
 ## Author
