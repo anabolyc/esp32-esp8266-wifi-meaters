@@ -7,32 +7,20 @@
 */
 
 #include <Arduino.h>
-#include <YoYoWiFiManager.h>
+#ifdef ESP32
+#include <WiFi.h>
+#endif
+#ifdef ESP8266
+#include <ESP8266WiFi.h>
+#endif
+
 #include <Approximate.h>
-#include <YoYoSettings.h>
-
-YoYoWiFiManager wifiManager;
-YoYoSettings *settings;
-
 Approximate approx;
-
-const int ledPin = 16; //DO
 
 List<Device *> activeDevices;
 const int maxActiveDevices = 64;
 const int minPayloadSizeBytes = 64;
 char status[32];
-
-void onceConnected()
-{
-  wifiManager.end();
-
-  if (approx.init("", "", false, false, false))
-  {
-    approx.setActiveDeviceHandler(onActiveDevice);
-    approx.begin();
-  }
-}
 
 bool blink(int periodMs)
 {
@@ -51,76 +39,74 @@ void onActiveDevice(Device *device, Approximate::DeviceEvent event)
   }
 }
 
-void serialEvent()
-{
-  while (Serial.available())
-  {
-    if ((char)Serial.read() == 'x')
-    {
-      wifiManager.getStatusAsString(status);
+// void serialEvent()
+// {
+//   while (Serial.available())
+//   {
+//     if ((char)Serial.read() == 'x')
+//     {
+//       wifiManager.getStatusAsString(status);
 
-      if (activeDevices.Count() > 0)
-      {
-        char macAddress[18];
+//       if (activeDevices.Count() > 0)
+//       {
+//         char macAddress[18];
 
-        while (activeDevices.Count() > 0)
-        {
-          Device *activeDevice = activeDevices[0];
+//         while (activeDevices.Count() > 0)
+//         {
+//           Device *activeDevice = activeDevices[0];
 
-          Serial.printf("[aprx]\t%s\t%s\t%i\t%i\n", status, activeDevice->getMacAddressAs_c_str(macAddress), activeDevice->getUploadSizeBytes(), activeDevice->getDownloadSizeBytes());
-          activeDevices.Remove(0);
-          delete activeDevice;
-        }
-      }
-      else
-      {
-        Serial.printf("[aprx]\t%s\n", status);
-      }
-    }
-  }
-}
+//           Serial.printf("[aprx]\t%s\t%s\t%i\t%i\n", status, activeDevice->getMacAddressAs_c_str(macAddress), activeDevice->getUploadSizeBytes(), activeDevice->getDownloadSizeBytes());
+//           activeDevices.Remove(0);
+//           delete activeDevice;
+//         }
+//       }
+//       else
+//       {
+//         Serial.printf("[aprx]\t%s\n", status);
+//       }
+//     }
+//   }
+// }
 
 void setup()
 {
   Serial.begin(SERIAL_BAUD);
 
-  pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, LOW);
+  pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_LED, LOW);
 
-  settings = new YoYoSettings(512); //Settings must be created here in Setup() as contains call to EEPROM.begin() which will otherwise fail
-  wifiManager.init(settings, onceConnected, NULL, NULL, false, 80, -1);
+  // settings = new YoYoSettings(512); //Settings must be created here in Setup() as contains call to EEPROM.begin() which will otherwise fail
+  // wifiManager.init(settings, onceConnected, NULL, NULL, false, 80, -1);
 
-  //Attempt to connect to a WiFi network previously saved in the settings,
-  //if one can not be found start a captive portal called "YoYoMachines",
-  //with a password of "blinkblink" to configure a new one:
-  wifiManager.begin("Home Network Study", "blinkblink");
+  // //Attempt to connect to a WiFi network previously saved in the settings,
+  // //if one can not be found start a captive portal called "YoYoMachines",
+  // //with a password of "blinkblink" to configure a new one:
+  // wifiManager.begin("Home Network Study", "blinkblink");
   randomSeed(analogRead(0));
+
+  if (approx.init("", "", false, false, false))
+  {
+    approx.setActiveDeviceHandler(onActiveDevice);
+    approx.begin();
+  }
 }
 
 void loop()
 {
-  uint8_t wifiStatus = wifiManager.loop();
   approx.loop();
 
   if (approx.isRunning())
   {
-    digitalWrite(ledPin, HIGH);
+    digitalWrite(PIN_LED, HIGH);
   }
   else
   {
-    switch (wifiManager.currentMode)
-    {
-    case YoYoWiFiManager::YY_MODE_PEER_CLIENT:
-      digitalWrite(ledPin, blink(1000));
-      break;
-    default: //YY_MODE_PEER_SERVER
-      digitalWrite(ledPin, blink(500));
-      break;
-    }
+    //WHEEL_SET(0);
+    digitalWrite(PIN_LED, blink(1000));
   }
 
-  if (Serial.available())
-  {
-    serialEvent();
-  }
+  // if (Serial.available())
+  // {
+  //   serialEvent();
+  // }
 }

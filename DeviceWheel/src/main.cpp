@@ -2,33 +2,44 @@
 /*
     Three WiFi Meters - Device Wheel
     -
-    David Chatting - github.com/davidchatting/ThreeWiFiMeters
+    Originally written by David Chatting - github.com/davidchatting/ThreeWiFiMeters
+    Updated by Andriy Malyshenko - https://github.com/anabolyc/esp32-esp8266-wifi-meaters
     MIT License - Copyright (c) March 2021
     Documented here > https://github.com/davidchatting/ThreeWiFiMeters#-device-wheel
 */
 
 #include <Arduino.h>
-#include <YoYoWiFiManager.h>
+#ifdef ESP32
+#include <WiFi.h>
+#endif
+#ifdef ESP8266
+#include <ESP8266WiFi.h>
+#endif
+
 #include <Approximate.h>
-#include <YoYoSettings.h>
-
-YoYoWiFiManager wifiManager;
-YoYoSettings *settings;
-
 Approximate approx;
 
-#if defined(ESP8266)
-const int ledPin = 2;
-#elif defined(ESP32)
-const int ledPin = 14;
+#ifdef WHEEL_TFT
+#include "tftwheel.h"
+TFTWheel *tftwheel = new TFTWheel();
+#define TFT_WHEEL_SET(value) tftwheel->set(value);
+#else
+#define TFT_WHEEL_SET(value) ;
 #endif
 
-const int motorPinA = SDA;
-const int motorPinB = SCL;
-#if defined(ESP32)
-const int motorChannelA = 0;
-const int motorChannelB = 1;
+#ifdef WHEEL_ANALOG
+#include "analogwheel.h"
+AnalogWheel *awheel = new AnalogWheel();
+#define A_WHEEL_SET(value) awheel->set(value);
+#else
+#define A_WHEEL_SET(value) ;
 #endif
+
+#define WHEEL_SET(value)  \
+  {                       \
+    TFT_WHEEL_SET(value); \
+    A_WHEEL_SET(value);   \
+  }
 
 int targetMotorSpeed = 0;
 const unsigned int motorUpdateIntervalMs = 250;
@@ -36,21 +47,15 @@ long nextMotorUpdateAtMs = 0;
 
 bool newPair = false;
 
-void onceConnected()
-{
-  wifiManager.end();
-
-  if (approx.init("", ""))
-  {
-    approx.setProximateDeviceHandler(onProximateDevice, APPROXIMATE_INTIMATE_RSSI, /*lastSeenTimeoutMs*/ 3000);
-    approx.setActiveDeviceHandler(onActiveDevice, /*inclusive*/ false);
-    approx.begin();
-  }
-}
-
 bool blink(int periodMs)
 {
   return (((millis() / periodMs) % 2) == 0);
+}
+
+void setPair(const char *macAddress)
+{
+  Serial.printf("Paired with: %s\n", macAddress);
+  approx.setActiveDeviceFilter(macAddress);
 }
 
 void onProximateDevice(Device *device, Approximate::DeviceEvent event)
@@ -61,19 +66,20 @@ void onProximateDevice(Device *device, Approximate::DeviceEvent event)
     newPair = true;
     char macAdddress[18];
     device->getMacAddressAs_c_str(macAdddress);
-    (*settings)["pair"] = macAdddress;
-    settings->save();
+    //(*settings)["pair"] = macAdddress;
+    //settings->save();
     setPair(macAdddress);
+    Serial.println("ARRIVE\t" + device->getMacAddressAsString());
     break;
   case Approximate::DEPART:
+    Serial.println("DEPART\t" + device->getMacAddressAsString());
     break;
   }
 }
 
-void setPair(const char *macAddress)
+void setTargetMotorSpeed(int v)
 {
-  Serial.printf("Paired with: %s\n", macAddress);
-  approx.setActiveDeviceFilter(macAddress);
+  targetMotorSpeed = constrain(v, -1024, 1024);
 }
 
 void onActiveDevice(Device *device, Approximate::DeviceEvent event)
@@ -83,122 +89,81 @@ void onActiveDevice(Device *device, Approximate::DeviceEvent event)
     payloadSizeByte *= -1;
 
   setTargetMotorSpeed(payloadSizeByte);
+  Serial.printf("onActiveDevice: %d\n", payloadSizeByte);
 }
 
 void updateMotorSpeed()
 {
   if (millis() > nextMotorUpdateAtMs)
   {
-    setMotorSpeed(targetMotorSpeed);
+    WHEEL_SET(targetMotorSpeed);
 
     targetMotorSpeed = 0;
     nextMotorUpdateAtMs = millis() + motorUpdateIntervalMs;
   }
 }
 
-void setTargetMotorSpeed(int v)
-{
-  targetMotorSpeed = constrain(v, -1024, 1024);
-}
-
-void setMotorSpeed(int v)
-{
-  v = constrain(v, -1024, 1024);
-
-  float valueA = 0;
-  float valueB = 0;
-
-  if (v != 0)
-  {
-    if (v > 0)
-    {
-      valueA = v;
-      valueB = 0;
-
-      digitalWrite(motorPinA, HIGH);
-      digitalWrite(motorPinB, LOW);
-    }
-    else
-    {
-      valueA = 0;
-      valueB = abs(v);
-
-      digitalWrite(motorPinA, LOW);
-      digitalWrite(motorPinB, HIGH);
-    }
-    delay(25);
-  }
-
-#if defined(ESP32)
-  ledcWrite(motorChannelA, valueA);
-  ledcWrite(motorChannelB, valueB);
-#else
-  analogWrite(motorPinA, valueA);
-  analogWrite(motorPinB, valueB);
-#endif
-}
-
 void setup()
 {
   Serial.begin(SERIAL_BAUD);
 
-  pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, LOW);
-
-  pinMode(motorPinA, OUTPUT);
-  pinMode(motorPinB, OUTPUT);
-#if defined(ESP32)
-  ledcSetup(motorChannelA, 1000, 8);
-  ledcSetup(motorChannelB, 1000, 8);
-  ledcAttachPin(motorPinA, motorChannelA);
-  ledcAttachPin(motorPinB, motorChannelB);
+#ifdef WHEEL_TFT
+  tftwheel->init();
+#endif
+#ifdef WHEEL_ANALOG
+  awheel->init(WHEEL_ANALOG_PIN_A, WHEEL_ANALOG_PIN_B);
 #endif
 
-  setMotorSpeed(1024);
+  // WiFi.begin(WIFI_SSID, WIFI_PASS);
+  // Serial.printf("Connecting to %s\n", WIFI_SSID);
+
+  // while (WiFi.status() != WL_CONNECTED)
+  // {
+  //   delay(400);
+  //   Serial.print(".");
+  // }
+  // Serial.print(" connected!");
+
+  pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_LED, LOW);
+
+  if (approx.init(WIFI_SSID, WIFI_PASS))
+  {
+    approx.setProximateDeviceHandler(onProximateDevice, APPROXIMATE_INTIMATE_RSSI, /*lastSeenTimeoutMs*/ 3000);
+    approx.setActiveDeviceHandler(onActiveDevice, /*inclusive*/ false);
+    approx.begin();
+  }
+
+  WHEEL_SET(1024);
   delay(25);
-  setMotorSpeed(0);
-
-  settings = new YoYoSettings(512); //Settings must be created here in Setup() as contains call to EEPROM.begin() which will otherwise fail
-  wifiManager.init(settings, onceConnected, NULL, NULL, false, 80, -1);
-
-  //  const char *macAddress = (*settings)["pair"];
-  //  if(macAddress) setPair(macAddress);
-
-  //Attempt to connect to a WiFi network previously saved in the settings,
-  //if one can not be found start a captive portal called "YoYoMachines",
-  //with a password of "blinkblink" to configure a new one:
-  wifiManager.begin("Home Network Study", "blinkblink");
+  WHEEL_SET(0);
 }
 
 void loop()
 {
-  uint8_t wifiStatus = wifiManager.loop();
   approx.loop();
+
+  // uint8_t wifiStatus = WiFi.status();
+  // Serial.printf("Wifi status: %d\n", wifiStatus);
 
   if (approx.isRunning())
   {
     if (!newPair)
-      digitalWrite(ledPin, HIGH);
+      digitalWrite(PIN_LED, HIGH);
     else
     {
-      digitalWrite(ledPin, LOW);
+      digitalWrite(PIN_LED, LOW);
       delay(200);
-      digitalWrite(ledPin, HIGH);
+      digitalWrite(PIN_LED, HIGH);
       newPair = false;
     }
   }
   else
   {
-    switch (wifiManager.currentMode)
-    {
-    case YoYoWiFiManager::YY_MODE_PEER_CLIENT:
-      digitalWrite(ledPin, blink(1000));
-      break;
-    default: //YY_MODE_PEER_SERVER
-      digitalWrite(ledPin, blink(500));
-      break;
-    }
+    WHEEL_SET(0);
+    digitalWrite(PIN_LED, blink(1000));
   }
 
   updateMotorSpeed();
+  // delay(1000);
 }
